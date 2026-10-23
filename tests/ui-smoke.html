@@ -131,6 +131,32 @@
                 check("сообщение об ошибке", !doc.getElementById("editorMessage").hidden &&
                   doc.getElementById("editorMessage").textContent.indexOf("Неизвестная команда") >= 0);
 
+                const calcOp = doc.getElementById("calcOp");
+                calcOp.value = "mul";
+                calcOp.dispatchEvent(new win.Event("change", { bubbles: true }));
+                check("калькулятор: 32 бита у умножения", doc.getElementById("calcWidth").textContent === "32 бит",
+                  "width=" + doc.getElementById("calcWidth").textContent);
+
+                doc.getElementById("calcA").value = "7";
+                doc.getElementById("calcB").value = "6";
+                doc.getElementById("calcRunBtn").click();
+
+                const mulValues = Array.from(doc.querySelectorAll("#calcResult .calc-out-value"))
+                  .map(function (node) { return node.textContent; });
+                check("калькулятор: 7 × 6 = 42", mulValues[0] === "42", "values=" + mulValues.join("|"));
+                check("калькулятор загрузил программу", doc.getElementById("source").value.indexOf("OUTER:") >= 0);
+
+                calcOp.value = "div";
+                calcOp.dispatchEvent(new win.Event("change", { bubbles: true }));
+                doc.getElementById("calcA").value = "100";
+                doc.getElementById("calcB").value = "7";
+                doc.getElementById("calcRunBtn").click();
+
+                const divValues = Array.from(doc.querySelectorAll("#calcResult .calc-out-value"))
+                  .map(function (node) { return node.textContent; });
+                check("калькулятор: 100 ÷ 7 = 14", divValues[0] === "14", "values=" + divValues.join("|"));
+                check("калькулятор: остаток 2", divValues[1] === "2", "values=" + divValues.join("|"));
+
                 finish();
               }, 1400);
             }, 1400);

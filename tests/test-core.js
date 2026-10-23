@@ -9,6 +9,7 @@ const ISA = require("../js/isa");
 const { assemble } = require("../js/assembler");
 const NanoCPU = require("../js/cpu");
 const examples = require("../js/examples");
+const calc = require("../js/calc");
 
 let passed = 0;
 let failed = 0;
@@ -494,6 +495,106 @@ test("программа с меткой впереди инструкции", (
   const result = assemble("START:\n  LDA #1\n  HLT");
   assert.equal(result.ok, true);
   assert.equal(result.symbols.START, 0);
+});
+
+section("Калькулятор");
+
+const MAX80 = (1n << 80n) - 1n;
+const MAX32 = (1n << 32n) - 1n;
+
+function runCalc(operation, a, b, maxSteps = 3_000_000) {
+  const built = calc.build(operation, a, b);
+  assert.equal(built.ok, true, built.error);
+  const cpu = new NanoCPU(built.result.ram, built.result.start);
+  let steps = 0;
+  while (!cpu.halted && !cpu.fault && steps < maxSteps) {
+    cpu.step();
+    steps++;
+  }
+  assert.equal(cpu.fault, null, "FAULT: " + (cpu.fault && cpu.fault.message));
+  assert.equal(cpu.halted, true, "программа не дошла до HLT");
+  return calc.readResults(operation, cpu.ram, built.result.symbols);
+}
+
+test("калькулятор: все операции помещаются в память", () => {
+  for (const operation of calc.operations) {
+    const built = calc.build(operation, 0n, 1n);
+    assert.equal(built.ok, true, operation.id + ": " + built.error);
+    assert.ok(built.result.size <= 247, operation.id + ": " + built.result.size + " байт");
+    assert.deepEqual(built.result.warnings, [], operation.id);
+  }
+});
+
+test("калькулятор: 80-битное сложение", () => {
+  const operation = calc.find("add");
+  const cases = [[0n, 0n], [1n, 2n], [MAX80, 1n], [MAX80 >> 1n, MAX80 >> 1n],
+    [123456789012345678901n, 987654321098765432109n]];
+  for (const [a, b] of cases) {
+    const results = runCalc(operation, a, b);
+    assert.equal(results[0].value, (a + b) & MAX80, a + " + " + b);
+    assert.equal(results[0].bytes.length, 10);
+  }
+});
+
+test("калькулятор: 80-битное вычитание", () => {
+  const operation = calc.find("sub");
+  const cases = [[0n, 0n], [1n, 1n], [0n, 1n], [MAX80, MAX80], [MAX80, 1n],
+    [987654321098765432109n, 123456789012345678901n]];
+  for (const [a, b] of cases) {
+    const results = runCalc(operation, a, b);
+    assert.equal(results[0].value, (a - b + (1n << 80n)) & MAX80, a + " - " + b);
+  }
+});
+
+test("калькулятор: 32-битное умножение", () => {
+  const operation = calc.find("mul");
+  const cases = [[0n, 0n], [1n, 1n], [7n, 6n], [MAX32, MAX32], [MAX32, 2n],
+    [123456789n, 987654321n], [65536n, 65536n]];
+  for (const [a, b] of cases) {
+    const results = runCalc(operation, a, b);
+    assert.equal(results[0].value, a * b, a + " * " + b);
+    assert.equal(results[0].bytes.length, 8);
+  }
+});
+
+test("калькулятор: 32-битное деление с остатком", () => {
+  const operation = calc.find("div");
+  const cases = [[0n, 1n], [1n, 1n], [100n, 7n], [MAX32, 1n], [MAX32, MAX32],
+    [MAX32, 3n], [1n, MAX32], [987654321n, 12345n], [65535n, 256n]];
+  for (const [a, b] of cases) {
+    const results = runCalc(operation, a, b);
+    assert.equal(results[0].value, a / b, "частное " + a + " / " + b);
+    assert.equal(results[1].value, a % b, "остаток " + a + " % " + b);
+  }
+});
+
+test("калькулятор: разбор чисел и лимиты", () => {
+  const add = calc.find("add");
+  const mul = calc.find("mul");
+
+  assert.equal(calc.parse(" 1 234 ", add).value, 1234n);
+  assert.equal(calc.parse("123_456", add).value, 123456n);
+  assert.equal(calc.parse("", add).ok, false);
+  assert.equal(calc.parse("abc", add).ok, false);
+  assert.equal(calc.parse("-5", add).ok, false);
+  assert.equal(calc.parse("1.5", add).ok, false);
+
+  assert.equal(calc.parse(String(MAX32), mul).ok, true);
+  assert.equal(calc.parse(String(MAX32 + 1n), mul).ok, false);
+  assert.equal(calc.parse(String(MAX80), add).ok, true);
+  assert.equal(calc.parse(String(MAX80 + 1n), add).ok, false);
+});
+
+test("калькулятор: деление на ноль отсекается", () => {
+  const operation = calc.find("div");
+  assert.ok(calc.validate(operation, 10n, 0n));
+  assert.equal(calc.validate(operation, 10n, 2n), null);
+});
+
+test("калькулятор: форматирование результата", () => {
+  assert.equal(calc.formatDecimal(1234567n), "1 234 567");
+  assert.equal(calc.formatHex(255n), "0xFF");
+  assert.equal(calc.formatHex(0n), "0x0");
 });
 
 console.log("\n" + "Итог: " + passed + " прошло, " + failed + " упало.");

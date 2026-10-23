@@ -45,6 +45,47 @@
 
     <main class="layout">
       <aside class="column column-left">
+        <section class="card calc-card">
+          <div class="card-head compact-head">
+            <div>
+              <div class="eyebrow">00 · калькулятор</div>
+              <h2>Посчитать на Nano-8</h2>
+            </div>
+            <span class="calc-width" id="calcWidth">80 бит</span>
+          </div>
+
+          <div class="calc-form">
+            <label class="calc-field">
+              <span>Первое число</span>
+              <input class="calc-input" id="calcA" type="text" inputmode="numeric"
+                     autocomplete="off" spellcheck="false" value="1234">
+            </label>
+            <label class="calc-field calc-field-op">
+              <span>Операция</span>
+              <select class="calc-select" id="calcOp" aria-label="Операция"></select>
+            </label>
+            <label class="calc-field">
+              <span>Второе число</span>
+              <input class="calc-input" id="calcB" type="text" inputmode="numeric"
+                     autocomplete="off" spellcheck="false" value="5678">
+            </label>
+          </div>
+
+          <p class="calc-hint" id="calcHint"></p>
+
+          <div class="calc-actions">
+            <button class="btn btn-primary" id="calcRunBtn" type="button">
+              <span class="btn-icon">=</span>
+              Вычислить
+            </button>
+            <button class="btn btn-ghost" id="calcResetBtn" type="button">
+              Сброс и по шагам
+            </button>
+          </div>
+
+          <div class="calc-result" id="calcResult" hidden></div>
+        </section>
+
         <section class="card editor-card">
           <div class="card-head">
             <div>
@@ -86,10 +127,11 @@
           <div class="eyebrow">как пользоваться</div>
           <h2>Быстрый старт</h2>
           <ol class="quick-steps">
-            <li><span>1</span><p>Отредактируйте программу или выберите пример.</p></li>
-            <li><span>2</span><p>Нажмите «Такт», чтобы увидеть одну микрооперацию.</p></li>
-            <li><span>3</span><p>«Команда» выполняет целиком, «Запуск» — всю программу.</p></li>
-            <li><span>4</span><p>Выберите «Гистограмму»: процессор нарисует её на дисплее по пикселям.</p></li>
+            <li><span>1</span><p>Введите два числа в калькуляторе сверху и нажмите «Вычислить».</p></li>
+            <li><span>2</span><p>Отредактируйте программу или выберите пример — они появятся в редакторе.</p></li>
+            <li><span>3</span><p>Нажмите «Такт», чтобы увидеть одну микрооперацию.</p></li>
+            <li><span>4</span><p>«Команда» выполняет целиком, «Запуск» — всю программу.</p></li>
+            <li><span>5</span><p>Выберите «Гистограмму»: процессор нарисует её на дисплее по пикселям.</p></li>
           </ol>
           <div class="shortcut-row">
             <span><kbd>F8</kbd> такт</span>
@@ -603,6 +645,7 @@ STA DISP_CTRL   ; пиксель (10, 20)</pre>
   <script src="js/assembler.js"></script>
   <script src="js/cpu.js"></script>
   <script src="js/examples.js"></script>
+  <script src="js/calc.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

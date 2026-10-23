@@ -7,6 +7,7 @@
 
   const ISA = window.NanoISA;
   const EXAMPLES = window.NanoExamples;
+  const CALC = window.NanoCalc;
 
   const $ = (id) => document.getElementById(id);
 
@@ -66,7 +67,8 @@
     cycleSteps: [],
     memoryCells: [],
     displayContext: null,
-    lastDisplayVersion: -1
+    lastDisplayVersion: -1,
+    calcPatch: null
   };
 
   const el = {};
@@ -88,7 +90,9 @@
       "outputStream", "memoryGrid", "memoryDetail", "guideDialog",
       "guideCloseBtn", "isaTableBody", "toast", "datapath",
       "displayCanvas", "displayEmpty", "pixelCount", "dispX", "dispY",
-      "dispCtrl", "clearDisplayBtn"
+      "dispCtrl", "clearDisplayBtn",
+      "calcA", "calcB", "calcOp", "calcWidth", "calcHint",
+      "calcRunBtn", "calcResetBtn", "calcResult"
     ].forEach((id) => { el[id] = $(id); });
 
     state.nodes = Array.from(document.querySelectorAll("#datapath [data-node]"));
@@ -98,10 +102,12 @@
     state.displayContext = el.displayCanvas.getContext("2d");
 
     buildExampleSelect();
+    buildCalcSelect();
     buildIsaTable();
     buildMemoryGrid();
     bindEvents();
     applySpeed();
+    renderCalcHint();
 
     el.source.value = EXAMPLES[0].source;
     updateEditorView();
@@ -132,6 +138,8 @@
       renderAll();
       return false;
     }
+
+    applyCalcPatch(result);
 
     state.program = result;
     state.cpu = new NanoCPU(result.ram, result.start);
@@ -192,6 +200,138 @@
 
     if (options.render !== false) renderAll();
     if (!options.silent) showToast("Процессор сброшен в начало программы.");
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Калькулятор                                                       */
+  /* ------------------------------------------------------------------ */
+
+  /*
+   * Подставляет числа в образ памяти уже собранной программы.
+   * Срабатывает только для программы калькулятора: сравниваем исходник.
+   */
+  function applyCalcPatch(result) {
+    const patch = state.calcPatch;
+    if (!patch || patch.source !== result.source) return;
+
+    for (const item of patch.items) {
+      const address = result.symbols[item.name];
+      if (address == null) continue;
+      for (let i = 0; i < item.bytes.length; i++) {
+        result.ram[address + i] = item.bytes[i];
+      }
+    }
+  }
+
+  function calcOperation() {
+    return CALC.find(el.calcOp.value) || CALC.operations[0];
+  }
+
+  function buildCalcSelect() {
+    el.calcOp.innerHTML = CALC.operations.map((operation) =>
+      '<option value="' + operation.id + '" title="' + escapeHtml(operation.title) + '">' +
+        operation.symbol + "</option>"
+    ).join("");
+    el.calcOp.value = CALC.operations[0].id;
+  }
+
+  function renderCalcHint() {
+    const operation = calcOperation();
+    el.calcWidth.textContent = (operation.width * 8) + " бит";
+    el.calcHint.classList.remove("is-error");
+    el.calcHint.textContent = operation.title + " · " + operation.note +
+      " · максимум " + CALC.formatDecimal(CALC.maxFor(operation));
+  }
+
+  function setCalcError(message) {
+    el.calcHint.classList.add("is-error");
+    el.calcHint.textContent = message;
+    el.calcResult.hidden = true;
+  }
+
+  function renderCalcResult(operation, a, b) {
+    const results = CALC.readResults(operation, state.cpu.ram, state.program.symbols);
+    const cards = results.map((item) =>
+      '<div class="calc-out">' +
+        '<span class="calc-out-label">' + escapeHtml(item.label) + "</span>" +
+        '<div class="calc-out-body">' +
+          '<span class="calc-out-value">' + CALC.formatDecimal(item.value) + "</span>" +
+          '<span class="calc-out-hex">' + CALC.formatHex(item.value) +
+            " · " + item.bytes.length + " Б</span>" +
+        "</div>" +
+      "</div>"
+    );
+
+    if (operation.id === "sub" && a < b) {
+      cards.push(
+        '<p class="calc-note">Меньшее вычитали из большего. Процессор работает с ' +
+        "беззнаковыми числами, поэтому показан результат по модулю 2⁸⁰ — это заём " +
+        "из несуществующего 81-го бита.</p>"
+      );
+    }
+
+    el.calcResult.innerHTML = cards.join("");
+    el.calcResult.hidden = false;
+  }
+
+  function computeCalc() {
+    const operation = calcOperation();
+    const a = CALC.parse(el.calcA.value, operation);
+    if (!a.ok) {
+      setCalcError(a.error);
+      return;
+    }
+    const b = CALC.parse(el.calcB.value, operation);
+    if (!b.ok) {
+      setCalcError(b.error);
+      return;
+    }
+    if (operation.id === "div" && b.value === 0n) {
+      setCalcError(CALC.validate(operation, a.value, b.value));
+      return;
+    }
+
+    stopRunning(false);
+
+    const items = operation.operands.map((operand, index) => ({
+      name: operand.name,
+      bytes: CALC.bytesOf(index === 0 ? a.value : b.value, operand.size)
+    }));
+
+    el.source.value = operation.program;
+    el.examplesSelect.value = "";
+    el.examplesSelect.title = operation.title + " — программа калькулятора";
+    state.calcPatch = { source: operation.program, items };
+    state.dirty = true;
+    updateEditorView();
+
+    if (!assembleProgram({ silent: true })) {
+      setCalcError("Не удалось собрать программу операции — смотрите редактор.");
+      return;
+    }
+
+    let steps = 0;
+    while (!state.cpu.halted && !state.cpu.fault && steps < 4000000) {
+      state.cpu.step();
+      steps++;
+    }
+
+    if (state.cpu.fault) {
+      setCalcError(state.cpu.fault.message);
+      return;
+    }
+    if (!state.cpu.halted) {
+      setCalcError("Программа не дошла до HLT — смотрите редактор.");
+      return;
+    }
+
+    renderAll();
+    renderCalcHint();
+    renderCalcResult(operation, a.value, b.value);
+    showToast(
+      operation.title + ": " + CALC.formatDecimal(a.value) + " " + operation.symbol + " " +
+      CALC.formatDecimal(b.value) + " — за " + state.cpu.cycles + " тактов."
+    );
   }
 
   /* ------------------------------------------------------------------ */
@@ -873,6 +1013,30 @@
     el.runBtn.addEventListener("click", toggleRun);
     el.resetBtn.addEventListener("click", () => resetCPU());
 
+    el.calcRunBtn.addEventListener("click", computeCalc);
+    el.calcOp.addEventListener("change", () => {
+      el.calcResult.hidden = true;
+      renderCalcHint();
+    });
+
+    for (const input of [el.calcA, el.calcB]) {
+      input.addEventListener("input", () => {
+        el.calcResult.hidden = true;
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          computeCalc();
+        }
+      });
+    }
+
+    el.calcResetBtn.addEventListener("click", () => {
+      if (!state.program) return;
+      resetCPU({ silent: true });
+      showToast("Процессор в начале программы — жмите F8 для такта.");
+    });
+
     el.speed.addEventListener("input", () => {
       state.speed = Number(el.speed.value);
       applySpeed();
@@ -959,9 +1123,11 @@
   }
 
   function buildExampleSelect() {
-    el.examplesSelect.innerHTML = EXAMPLES.map((example) =>
-      '<option value="' + escapeHtml(example.id) + '">' + escapeHtml(example.title) + "</option>"
-    ).join("");
+    el.examplesSelect.innerHTML =
+      '<option value="" disabled>— калькулятор —</option>' +
+      EXAMPLES.map((example) =>
+        '<option value="' + escapeHtml(example.id) + '">' + escapeHtml(example.title) + "</option>"
+      ).join("");
     el.examplesSelect.value = EXAMPLES[0].id;
     el.examplesSelect.title = EXAMPLES[0].note;
   }
