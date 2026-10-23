@@ -1,0 +1,12 @@
+# OS / editor
+Thumbs.db
+.DS_Store
+*.log
+
+# dependencies
+node_modules/
+
+# local browser/test artifacts
+.browser-profile*/
+tests/ui-smoke-output.html
+screenshot-*.png

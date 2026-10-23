@@ -1,0 +1,9 @@
+{
+  "name": "nano-8-cpu-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Интерактивный симулятор простого 8-битного процессора с ассемблером и визуализацией тракта данных",
+  "scripts": {
+    "test": "node tests/test-core.js"
+  }
+}

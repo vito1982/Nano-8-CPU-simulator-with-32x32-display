@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Nano-8 UI smoke test</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #05090e; }
+    iframe { display: block; width: 100vw; height: 100vh; border: 0; }
+    #result {
+      position: fixed;
+      right: 8px;
+      bottom: 8px;
+      z-index: 99;
+      display: none;
+      max-width: 620px;
+      max-height: 80vh;
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      color: #bfffe9;
+      background: rgba(3, 10, 8, 0.97);
+      font: 11px/1.5 monospace;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <iframe id="app" src="../index.html" title="Nano-8"></iframe>
+  <pre id="result" aria-hidden="true"></pre>
+
+  <script>
+    (function () {
+      const frame = document.getElementById("app");
+      const resultEl = document.getElementById("result");
+      const checks = [];
+      const runtimeErrors = [];
+
+      function check(name, condition, details) {
+        checks.push({ name, pass: !!condition, details: details || "" });
+      }
+
+      frame.addEventListener("load", function () {
+        const win = frame.contentWindow;
+        const doc = frame.contentDocument;
+
+        win.addEventListener("error", function (event) {
+          runtimeErrors.push(String(event.message || event.error || "error"));
+        });
+
+        setTimeout(function () {
+          try {
+            check("приложение загрузилось", !!doc.getElementById("datapath"));
+            check("стартовый пример собран", doc.getElementById("sizeInfo").textContent.includes("31"));
+            check("стартовый PC", doc.getElementById("regPC").textContent === "$00");
+            check("стартовый статус", doc.getElementById("statusText").textContent === "Готов");
+
+            const select = doc.getElementById("examplesSelect");
+            select.value = "hello";
+            select.dispatchEvent(new win.Event("change", { bubbles: true }));
+
+            check("пример Hello собран", doc.getElementById("sizeInfo").textContent.includes("40"));
+
+            for (let i = 0; i < 6; i++) {
+              doc.getElementById("stepBtn").click();
+            }
+
+            check("инструкция показана", doc.getElementById("currentInstr").textContent.indexOf("LDA") >= 0,
+              "instr=" + doc.getElementById("currentInstr").textContent);
+
+            doc.getElementById("stepBtn").click();
+
+            check("LDA #'H' загрузил A", doc.getElementById("regA").textContent === "$48",
+              "A=" + doc.getElementById("regA").textContent);
+            check("такт показан", /^T\d+$/.test(doc.getElementById("stepNo").textContent),
+              "step=" + doc.getElementById("stepNo").textContent);
+
+            const speed = doc.getElementById("speed");
+            speed.value = "10";
+            speed.dispatchEvent(new win.Event("input", { bubbles: true }));
+            doc.getElementById("runBtn").click();
+
+            setTimeout(function () {
+              check("программа остановилась", doc.getElementById("statusText").textContent === "Остановлен",
+                "status=" + doc.getElementById("statusText").textContent);
+              check("ASCII-вывод", doc.getElementById("outputAscii").textContent === "Hello, 8-bit!",
+                "ascii=" + doc.getElementById("outputAscii").textContent);
+              check("13 байт в порту", doc.querySelectorAll("#outputStream .out-chip").length === 13,
+                "chips=" + doc.querySelectorAll("#outputStream .out-chip").length);
+
+              doc.getElementById("resetBtn").click();
+              check("сброс вернул PC", doc.getElementById("regPC").textContent === "$00");
+              check("сброс очистил порт", doc.getElementById("outputAscii").textContent === "—",
+                "ascii=" + doc.getElementById("outputAscii").textContent);
+
+              const selectBars = doc.getElementById("examplesSelect");
+              selectBars.value = "bars";
+              selectBars.dispatchEvent(new win.Event("change", { bubbles: true }));
+
+              check("дисплей пуст до запуска", doc.getElementById("pixelCount").textContent === "0 px",
+                "pixels=" + doc.getElementById("pixelCount").textContent);
+
+              doc.getElementById("runBtn").click();
+
+              setTimeout(function () {
+                check("гистограмма остановилась", doc.getElementById("statusText").textContent === "Остановлен",
+                  "status=" + doc.getElementById("statusText").textContent);
+                check("на дисплее 144 пикселя", doc.getElementById("pixelCount").textContent === "144 px",
+                  "pixels=" + doc.getElementById("pixelCount").textContent);
+                check("оверлей пустого экрана скрыт", doc.getElementById("displayEmpty").hidden);
+
+                const canvas = doc.getElementById("displayCanvas");
+                const context = canvas.getContext("2d");
+                const lit = context.getImageData(0, 31, 1, 1).data;
+                const dark = context.getImageData(0, 27, 1, 1).data;
+                check("пиксель (0,31) нарисован", lit[1] > 200,
+                  "rgba=" + Array.from(lit).join(","));
+                check("пиксель (0,27) пуст", dark[1] < 100,
+                  "rgba=" + Array.from(dark).join(","));
+
+                doc.getElementById("resetBtn").click();
+                check("сброс очистил дисплей", doc.getElementById("pixelCount").textContent === "0 px",
+                  "pixels=" + doc.getElementById("pixelCount").textContent);
+
+                const source = doc.getElementById("source");
+                source.value = "WAT #1\nHLT";
+                source.dispatchEvent(new win.Event("input", { bubbles: true }));
+                doc.getElementById("assembleBtn").click();
+
+                check("ошибка сборки видна", doc.getElementById("statusText").textContent === "Ошибка сборки",
+                  "status=" + doc.getElementById("statusText").textContent);
+                check("сообщение об ошибке", !doc.getElementById("editorMessage").hidden &&
+                  doc.getElementById("editorMessage").textContent.indexOf("Неизвестная команда") >= 0);
+
+                finish();
+              }, 1400);
+            }, 1400);
+          } catch (error) {
+            runtimeErrors.push(String(error && error.stack || error));
+            finish();
+          }
+        }, 250);
+      });
+
+      function finish() {
+        const failed = checks.filter(function (item) { return !item.pass; });
+        const payload = {
+          passed: checks.length - failed.length,
+          failed: failed.length,
+          checks: checks,
+          runtimeErrors: runtimeErrors
+        };
+
+        resultEl.style.display = "block";
+        resultEl.textContent = JSON.stringify(payload, null, 2);
+        document.title = failed.length || runtimeErrors.length ? "SMOKE FAIL" : "SMOKE PASS";
+      }
+    })();
+  </script>
+</body>
+</html>
