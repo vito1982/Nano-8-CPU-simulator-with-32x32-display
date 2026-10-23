@@ -430,6 +430,43 @@ test("пример диагоналей рисует 64 пикселя", () => {
   assert.equal(cpu.getDisplayPixel(0, 1), 0);
 });
 
+test("пример 80-битного сложения", () => {
+  const example = examples.find((item) => item.id === "add80");
+  const { cpu, result } = run(example.source);
+  const text = cpu.output.map((entry) => String.fromCharCode(entry.value)).join("");
+  assert.equal(text, "01000000000000000000");
+
+  const sum = result.symbols.SUM;
+  assert.deepEqual(
+    Array.from(cpu.ram.slice(sum, sum + 10)),
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  );
+});
+
+test("80-битное сложение: переполнение уходит в перенос", () => {
+  const example = examples.find((item) => item.id === "add80");
+  const result = assemble(example.source);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+
+  const a = result.symbols.NUM_A;
+  const b = result.symbols.NUM_B;
+  for (let i = 0; i < 10; i++) {
+    result.ram[a + i] = 0xff;
+    result.ram[b + i] = i === 0 ? 0x01 : 0x00;
+  }
+
+  const cpu = new NanoCPU(result.ram, result.start);
+  let steps = 0;
+  while (!cpu.halted && !cpu.fault && steps < 30000) {
+    cpu.step();
+    steps++;
+  }
+
+  assert.equal(cpu.fault, null, "FAULT: " + (cpu.fault && cpu.fault.message));
+  const text = cpu.output.map((entry) => String.fromCharCode(entry.value)).join("");
+  assert.equal(text, "1" + "0".repeat(20));
+});
+
 test("неизвестный опкод даёт FAULT", () => {
   const ram = new Uint8Array(256);
   ram[0] = 0xfe;

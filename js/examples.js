@@ -282,6 +282,131 @@ LOOP:   LDA P
 
 P:      .byte 0
 `
+    },
+    {
+      id: "add80",
+      title: "Сложение 10-байтовых чисел",
+      note: "80-битное сложение: перенос хранится в памяти, адреса операндов подставляются в код. В порт уходят 20 hex-цифр.",
+      source: `; Сложение двух 10-байтовых чисел (80 бит)
+; Числа лежат в памяти little-endian: младший байт первым.
+;
+; В ISA нет ADC (сложение с переносом) и индексной адресации,
+; поэтому здесь два обхода:
+;   1) перенос переносится вручную через переменную CY;
+;   2) адрес очередного байта подставляется прямо в байт-операнд
+;      команды (A_OP+1, B_OP+1, ST0+1, ST1+1) — самомодификация.
+;
+; $00FFFFFFFFFFFFFFFFFF + 1 = $01000000000000000000
+
+        .equ LEN, 10
+
+START:  LDA #0
+        STA CY
+        LDA #NUM_A
+        STA PA
+        LDA #NUM_B
+        STA PB
+        LDA #SUM
+        STA PS
+        LDA #LEN
+        STA CNT
+
+LOOP:   LDA PA
+        STA A_OP+1       ; адрес a[i] -> операнд LDA
+        LDA PB
+        STA B_OP+1       ; адрес b[i] -> операнд ADD
+        LDA PS
+        STA ST0+1        ; адрес s[i] -> операнд STA
+        LDA PS
+        STA ST1+1
+
+A_OP:   LDA $00          ; A = a[i]
+B_OP:   ADD $00          ; A = a[i] + b[i], C = перенос
+        JC  CARRY1
+
+        ADD CY           ; + перенос из младшего байта
+        JC  ST1          ; и он тоже переполнил
+ST0:    STA $00          ; s[i], перенос = 0
+        LDA #0
+        STA CY
+        JMP NEXT
+
+CARRY1: ADD CY
+        JMP ST1
+ST1:    STA $00          ; s[i], перенос = 1
+        LDA #1
+        STA CY
+
+NEXT:   LDA PA
+        INC
+        STA PA
+        LDA PB
+        INC
+        STA PB
+        LDA PS
+        INC
+        STA PS
+        LDA CNT
+        DEC
+        STA CNT
+        JNZ LOOP
+
+; Вывод: сначала перенос за 80 бит, затем 20 hex-цифр
+        LDA CY
+        JZ  PRINT
+        LDA #'1'
+        OUT
+
+PRINT:  LDA #SUM+LEN-1   ; старший байт
+        STA PP
+        LDA #LEN
+        STA CNT
+
+PLOOP:  LDA PP
+        STA R1+1
+R1:     LDA $00          ; старшая тетрада
+        SHR
+        SHR
+        SHR
+        SHR
+        CMP #10
+        JC  HI1
+        ADD #48
+        JMP OUT1
+HI1:    ADD #55
+OUT1:   OUT
+
+        LDA PP
+        STA R2+1
+R2:     LDA $00          ; младшая тетрада
+        AND #$0F
+        CMP #10
+        JC  HI2
+        ADD #48
+        JMP OUT2
+HI2:    ADD #55
+OUT2:   OUT
+
+        LDA PP
+        DEC
+        STA PP
+        LDA CNT
+        DEC
+        STA CNT
+        JNZ PLOOP
+        HLT
+
+CY:     .byte 0
+CNT:    .byte 0
+PA:     .byte 0
+PB:     .byte 0
+PS:     .byte 0
+PP:     .byte 0
+
+NUM_A:  .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $00
+NUM_B:  .byte $01, $00, $00, $00, $00, $00, $00, $00, $00, $00
+SUM:    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+`
     }
   ];
 
